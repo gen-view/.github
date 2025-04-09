@@ -3,37 +3,37 @@
 ``` mermaid
 graph TB
     subgraph Frontend["프론트엔드 서비스"]
-        F[gen-view-front<br>Svelte 4.2.8 + Vite 5.0.10]
-        S[gen-view-streamlit<br>Python + Streamlit 1.43.0]
-        SO[gen-view-streamlit-okx<br>OKX 전용 대시보드]
+        F[gen-view-front<br>Svelte 4.2.8 + Vite 5.0.10<br>포트: 3001]
+        S[gen-view-streamlit<br>Python + Streamlit 1.43.0<br>포트: 8120]
+        SO[gen-view-streamlit-okx<br>OKX 전용 대시보드<br>포트: 8121]
     end
 
     subgraph Backend["백엔드 서비스"]
         subgraph API["gen-view-api"]
-            API_Core[FastAPI 0.115.11<br>Python 3.12]
-            API_Worker[Worker 서비스<br>RQ 작업 처리]
+            API_Core[FastAPI 0.115.11<br>Python 3.12<br>포트: 8100]
+            API_Worker[Worker 서비스<br>RQ 작업 처리<br>레플리카: 10개]
             API_Components[커스텀 컴포넌트<br>시뮬레이터/팩터/백테스트]
         end
     end
 
     subgraph DataPipeline["데이터 파이프라인"]
-        AF_W[Airflow Webserver<br>v2.10.5]
+        AF_W[Airflow Webserver<br>v2.10.5<br>포트: 8280]
         AF_S[Airflow Scheduler]
         AF_P[Airflow PostgreSQL<br>메타데이터 저장소]
         AF_I[Airflow Init]
     end
 
     subgraph Storage["데이터 스토리지"]
-        CH[ClickHouse<br>시계열 데이터<br>v25.2.1.3085]
-        PG[PostgreSQL<br>메타데이터/권한관리]
-        MG[MongoDB<br>포트폴리오/전략 저장]
-        RD[Redis Alpine<br>캐싱 및 작업 큐]
-        ME[Mongo Express<br>MongoDB UI]
-        RC[Redis Commander<br>Redis UI]
+        CH[ClickHouse<br>시계열 데이터<br>v25.2.1.3085<br>HTTP: 8123<br>Native: 9003]
+        PG[PostgreSQL<br>메타데이터/권한관리<br>포트: 5433]
+        MG[MongoDB<br>포트폴리오/전략 저장<br>포트: 27018]
+        RD[Redis Alpine<br>캐싱 및 작업 큐<br>포트: 6379]
+        ME[Mongo Express<br>MongoDB UI<br>포트: 8122]
+        RC[Redis Commander<br>Redis UI<br>포트: 8281]
     end
 
     subgraph Security["보안"]
-        V[HashiCorp Vault<br>시크릿 관리<br>v1.18.2]
+        V[HashiCorp Vault<br>시크릿 관리<br>v1.18.2<br>포트: 8201]
     end
 
     %% 프론트엔드 연결
@@ -78,6 +78,95 @@ graph TB
     class AF_W,AF_S,AF_P,AF_I pipelineStyle
     class CH,PG,MG,RD,ME,RC storageStyle
     class V securityStyle
+```
+
+## Gen-View 네트워크 및 볼륨 구성
+
+``` mermaid
+graph TB
+    subgraph Networks["네트워크 구성"]
+        GVN[gen-view-network<br>공용 네트워크]
+        CHN[clickhouse-network]
+        VN[vault-network]
+        FN[frontend-network]
+        STN[streamlit-network]
+        STOKXN[streamlit-okx-network]
+        AFN[airflow-network]
+        PGN[postgresql-network]
+        RDN[redis-network]
+        MGN[mongodb-network]
+    end
+
+    subgraph Volumes["볼륨 구성"]
+        CH_VOL[clickhouse-data<br>중요도: critical]
+        V_VOL[vault-data<br>중요도: critical]
+        PG_VOL[postgresql-data<br>중요도: critical]
+        AF_PG_VOL[airflow-postgres-data<br>중요도: critical]
+        RD_VOL[redis-data<br>중요도: medium]
+        MG_VOL[mongodb-data<br>중요도: critical]
+    end
+
+    subgraph Services["주요 서비스"]
+        API[API<br>gen-view-api]
+        WORKER[Worker<br>10개 레플리카]
+        FRONT[Frontend<br>gen-view-front]
+        ST[Streamlit]
+        ST_OKX[Streamlit OKX]
+        CH_SVC[ClickHouse]
+        MG_SVC[MongoDB]
+        RD_SVC[Redis]
+        V_SVC[Vault]
+        AF_SVC[Airflow]
+    end
+
+    %% 서비스와 네트워크 연결
+    API --> GVN
+    API --> CHN
+    API --> VN
+    API --> FN
+    API --> STN
+    API --> RDN
+
+    WORKER --> GVN
+    WORKER --> CHN
+    WORKER --> VN
+    WORKER --> RDN
+
+    FRONT --> FN
+
+    ST --> STN
+
+    ST_OKX --> GVN
+    ST_OKX --> STOKXN
+
+    CH_SVC --> GVN
+    CH_SVC --> CHN
+
+    MG_SVC --> GVN
+    MG_SVC --> MGN
+
+    RD_SVC --> GVN
+    RD_SVC --> RDN
+
+    V_SVC --> VN
+
+    AF_SVC --> GVN
+    AF_SVC --> AFN
+
+    %% 서비스와 볼륨 연결
+    CH_SVC --> CH_VOL
+    V_SVC --> V_VOL
+    MG_SVC --> MG_VOL
+    RD_SVC --> RD_VOL
+    AF_SVC --> AF_PG_VOL
+
+    classDef networkStyle fill:#e1f5fe,stroke:#333,stroke-width:1px
+    classDef volumeStyle fill:#f3e5f5,stroke:#333,stroke-width:1px
+    classDef serviceStyle fill:#e8f5e9,stroke:#333,stroke-width:1px
+
+    class GVN,CHN,VN,FN,STN,STOKXN,AFN,PGN,RDN,MGN networkStyle
+    class CH_VOL,V_VOL,PG_VOL,AF_PG_VOL,RD_VOL,MG_VOL volumeStyle
+    class API,WORKER,FRONT,ST,ST_OKX,CH_SVC,MG_SVC,RD_SVC,V_SVC,AF_SVC serviceStyle
 ```
 
 ## 서비스별 주요 기능 및 설명
@@ -262,11 +351,11 @@ graph TB
         end
 
         subgraph External["external"]
-            RD[(Redis<br>작업 큐/캐싱)]
-            CH[(ClickHouse<br>시계열 데이터)]
-            PG[(PostgreSQL<br>메타데이터)]
-            MG[(MongoDB<br>전략 데이터)]
-            VT[Vault<br>시크릿 관리]
+            RD[(Redis<br>작업 큐/캐싱<br>포트: 6379)]
+            CH[(ClickHouse<br>시계열 데이터<br>HTTP: 8123<br>Native: 9003)]
+            PG[(PostgreSQL<br>메타데이터<br>포트: 5433)]
+            MG[(MongoDB<br>전략 데이터<br>포트: 27018)]
+            VT[Vault<br>시크릿 관리<br>포트: 8201]
         end
     end
 
@@ -316,3 +405,17 @@ style DB fill:#bbdefb,stroke:#333,stroke-width:1px
 style Engine fill:#d1c4e9,stroke:#333,stroke-width:1px
 style Worker fill:#c8e6c9,stroke:#333,stroke-width:1px
 ``` 
+
+## 서비스 접속 정보
+
+| 서비스 | URL | 설명 |
+|-------|-----|------|
+| API | http://localhost:8100 | FastAPI 백엔드 서비스 |
+| 프론트엔드 | http://localhost:3001 | Svelte 프론트엔드 |
+| Streamlit | http://localhost:8120 | 데이터 시각화 대시보드 |
+| Streamlit OKX | http://localhost:8121 | OKX 리서치 대시보드 |
+| Airflow | http://localhost:8280 | 데이터 파이프라인 관리 |
+| ClickHouse HTTP | http://localhost:8123 | ClickHouse HTTP 인터페이스 |
+| Vault | http://localhost:8201 | 시크릿 관리 서비스 |
+| MongoDB Express | http://localhost:8122 | MongoDB 웹 인터페이스 |
+| Redis Commander | http://localhost:8281 | Redis 웹 인터페이스 |
